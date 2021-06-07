@@ -1,10 +1,13 @@
 {
     "cSpell.words": [
+        "accum",
+        "dtype",
         "einsum",
         "gelu",
         "keras",
         "matmul",
         "numpy",
+        "tfrecord",
         "tqdm"
     ]
 }

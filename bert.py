@@ -16,7 +16,7 @@ class PretrainerBERT(models.Model):
 
         self.bert = BERT(self.num_layers, self.vocab_size, self.seq_len, self.hidden_size, self.dff, self.num_heads, dropout_rate)
         self.dense_for_nsp = layers.Dense(1, activation='sigmoid', kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
-        self.dense_for_mlm = layers.Dense(self.vocab_size, activation='softmax', kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
+        self.dense_for_mlm = layers.Dense(self.vocab_size, kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
 
     def call(self, input_ids, seg_ids, mask, training=True):
         x = self.bert(input_ids, seg_ids, mask, training)
