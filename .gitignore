@@ -1,0 +1,5 @@
+checkpoints/
+logs/
+__pycache__/
+logs_v2/
+GLUE/

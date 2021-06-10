@@ -3,6 +3,40 @@ import tensorflow as tf
 from tensorflow.keras import layers, models
 
 
+class PretrainerBERTv2(models.Model):
+    def __init__(self, num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate=0.1):
+        super().__init__()
+
+        self.num_layers = num_layers
+        self.vocab_size = vocab_size
+        self.seq_len = seq_len
+        self.hidden_size = hidden_size
+        self.dff = dff
+        self.num_heads = num_heads
+
+        self.bert = BERT(self.num_layers, self.vocab_size, self.seq_len, self.hidden_size, self.dff, self.num_heads, dropout_rate)
+        self.dense_for_nsp = layers.Dense(1, activation='sigmoid', kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
+        self.pool = layers.Dense(self.hidden_size, activation='tanh', kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
+
+        self.dense_for_mlm = layers.Dense(self.vocab_size, kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
+        self.dropout = layers.Dropout(dropout_rate)
+        self.layernorm = layers.LayerNormalization()
+        self.dense = layers.Dense(self.hidden_size, kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02), activation='gelu')
+
+    def call(self, input_ids, seg_ids, mask, training=True):
+        x = self.bert(input_ids, seg_ids, mask, training)
+
+        pooled_output = self.pool(x[:, 0])
+        nsp_prediction = self.dense_for_nsp(pooled_output)
+
+        mlm_prediction = self.dense(x)
+        mlm_prediction = self.dropout(mlm_prediction, training=training)
+        mlm_prediction = self.layernorm(mlm_prediction)
+        mlm_prediction = self.dense_for_mlm(mlm_prediction)
+
+        return mlm_prediction, nsp_prediction, pooled_output
+
+
 class PretrainerBERT(models.Model):
     def __init__(self, num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate=0.1):
         super().__init__()
@@ -24,7 +58,7 @@ class PretrainerBERT(models.Model):
         nsp_prediction = self.dense_for_nsp(x[:,0])
         mlm_prediction = self.dense_for_mlm(x)
 
-        return mlm_prediction, nsp_prediction
+        return mlm_prediction, nsp_prediction, x[:,0]
 
 
 class BERT(layers.Layer):
@@ -73,7 +107,7 @@ class EmbeddingProcessor(layers.Layer):
     def call(self, input_ids, seg_ids, training=True):
         embedding = self.embedding(input_ids)
 
-        embedding += self.position_embedding(self.seq_len)
+        embedding += self.position_embedding(self.seq_list)
         embedding += self.segment_embedding(seg_ids)
 
         embedding = self.layer_norm(embedding)
@@ -147,11 +181,11 @@ class AttentionLayer(layers.Layer):
         k = tf.transpose(tf.reshape(k, [batch_size, -1, self.num_heads, self.depth]), perm=[0, 2, 1, 3])
         v = tf.transpose(tf.reshape(v, [batch_size, -1, self.num_heads, self.depth]), perm=[0, 2, 1, 3])
 
-        attention_scores = tf.einsum('bnqd,bnkd->bnqk')
+        attention_scores = tf.einsum('bnqd,bnkd->bnqk', q, k)
         attention_scores = attention_scores / tf.sqrt(float(self.depth))
         
         # {1, 0} -> {0.0, -inf}
-        att_mask = (1.0 - tf.expand_dims(att_mask, 1)) * -10000.
+        att_mask = tf.expand_dims(tf.expand_dims(att_mask, 1), 1) * -10000.
         attention_scores = tf.add(attention_scores, att_mask)
 
         # [b, n, q, k]
