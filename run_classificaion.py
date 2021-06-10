@@ -31,7 +31,7 @@ num_data = {
     'STS-2':  5749,
 }
 
-path = '/hdd/user16/HT/data/GLUE'
+path = '../data/GLUE'
 hidden_size = 128
 dropout_rate = 0.1
 num_heads = 2
