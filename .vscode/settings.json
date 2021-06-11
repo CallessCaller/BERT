@@ -1,26 +1,7 @@
 {
     "cSpell.words": [
-        "absl",
-        "accum",
-        "acum",
-        "amsgrad",
-        "ckpt",
-        "cond",
-        "config",
-        "dtype",
-        "einsum",
-        "gelu",
-        "grad",
         "keras",
-        "matmul",
-        "mnli",
         "mrpc",
-        "numpy",
-        "proto",
-        "qnli",
-        "rsqrt",
-        "tfrecord",
-        "tqdm",
-        "tvars"
+        "numpy"
     ]
 }

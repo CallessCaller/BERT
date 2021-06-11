@@ -11,13 +11,13 @@ from optimization import WarmUp, AdamWeightDecay
 from tqdm import tqdm
 from tensorflow.keras.mixed_precision import experimental as mixed_precision
 
-RTE = True  # 2437 270
+RTE = False  # 2437 270
 QQP = True  # 363828 40430
-COLA = True # 8550 1042
+COLA = False # 8550 1042
 QNLI = True # 104620 5453
 MNLI = True # 392575 9815
 SST = True  # 67349 872
-MRPC = True # 3668 408
+MRPC = False # 3668 408
 STS = True  # 5749 1500
 
 num_data = {
@@ -57,6 +57,8 @@ def get_accuracy(real, pred):
     
     return tf.reduce_mean(accuracies), tf.reduce_sum(accuracies)
 
+matthew = tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)
+
 def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     best = 0
     bert = PretrainerBERT(num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate)
@@ -68,7 +70,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     print('Latest checkpoint restored!!')
 
     #model = ClassifierBERT(bert, 2, num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate)
-    classifier = ClassifierBERT(2, num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate)
+    classifier = ClassifierBERT(num_class, num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate)
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     writer = tf.summary.create_file_writer(f"./{task}/logs/" + current_time + '/train')
 
@@ -88,12 +90,25 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
 
     dataset = dataset.repeat(EPOCHS).shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE).map(_parse_function)
 
-    with open(f'{path}/{task}/dev.pickle', 'rb') as f:
-        test_lines = pickle.load(f)
-        test_labels = pickle.load(f)
-        test_sep = pickle.load(f)
-        test_mask = pickle.load(f) 
-    
+    if task=='MNLI':
+        with open(f'{path}/{task}/dev_matched.pickle', 'rb') as f:
+            test_lines = pickle.load(f)
+            test_labels = pickle.load(f)
+            test_sep = pickle.load(f)
+            test_mask = pickle.load(f)
+
+        with open(f'{path}/{task}/dev_mismatched.pickle', 'rb') as f:
+            test_lines_mis = pickle.load(f)
+            test_labels_mis = pickle.load(f)
+            test_sep_mis = pickle.load(f)
+            test_mask_mis = pickle.load(f)
+    else:
+        with open(f'{path}/{task}/dev.pickle', 'rb') as f:
+            test_lines = pickle.load(f)
+            test_labels = pickle.load(f)
+            test_sep = pickle.load(f)
+            test_mask = pickle.load(f) 
+        
     loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     sequence_tensor = tf.convert_to_tensor(
@@ -131,15 +146,25 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         gradients = tape.gradient(loss, variables)
         optimizer.apply_gradients(zip(gradients, variables))
 
-        acc, _ = get_accuracy(label, prediction)
+        if task == 'CoLA':
+            label = tf.one_hot(label, depth=2)
+            matthew.update_state(label, prediction)
+            acc = matthew.result()
+        else:
+            acc, _ = get_accuracy(label, prediction)
 
         return loss, acc
     
-
+    @tf.function
     def eval(input_ids, label, seg_ids, mask):
         _, _, output = bert(input_ids, seg_ids, mask, False)
         prediction = classifier(output)
-        _, acc = get_accuracy(label, prediction)
+        if task == 'CoLA':
+            label = tf.one_hot(label, depth=2)
+            matthew.update_state(label, prediction)
+            acc = matthew.result()
+        else:
+            _, acc = get_accuracy(label, prediction)
 
         return loss, acc
 
@@ -154,15 +179,35 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         if (step+1) % 100 == 0:
             test_dataset = tf.data.Dataset.from_tensor_slices((test_lines, test_labels, test_sep,test_mask))
             test_dataset = test_dataset.batch(BATCH_SIZE, drop_remainder=False).repeat(1)
+            if task == 'MNLI':
+                test_dataset_mis = tf.data.Dataset.from_tensor_slices((test_lines_mis, test_labels_mis, test_sep_mis, test_mask_mis))
+                test_dataset_mis = test_dataset_mis.batch(BATCH_SIZE, drop_remainder=False).repeat(1)
             eval_acc_total = 0
             for (test_step, (test_line, test_label, test_s, test_p)) in enumerate(test_dataset):
                 seg_ids, pad_ids = create_masks(test_s, test_p)
 
                 _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
                 eval_acc_total += eval_acc
-            eval_acc_total /= len(test_labels)
+
+            if task == 'CoLA':
+                eval_acc_total = eval_acc
+            else:
+                eval_acc_total /= len(test_labels)
+
             if eval_acc_total > best:
                 best = eval_acc_total
+
+            if task == 'MNLI':
+                best_mis = 0
+                eval_acc_total_mis = 0
+                for (test_step, (test_line, test_label, test_s, test_p)) in enumerate(test_dataset_mis):
+                    seg_ids, pad_ids = create_masks(test_s, test_p)
+
+                    _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
+                    eval_acc_total_mis += eval_acc
+                eval_acc_total_mis /= len(test_labels_mis)
+                if eval_acc_total_mis > best_mis:
+                    best_mis = eval_acc_total_mis
 
             with writer.as_default():    
                 print(f"Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
@@ -175,11 +220,28 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     for (eval_step, (test_line, test_label, test_s, test_p)) in enumerate(test_dataset):
         seg_ids, pad_ids = create_masks(test_s, test_p)
 
-        loss, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
+        _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
         eval_acc_total += eval_acc
-    eval_acc_total /= len(test_labels)
+    if task == 'CoLA':
+        eval_acc_total = eval_acc
+    else:
+        eval_acc_total /= len(test_labels)
     if eval_acc_total > best:
-                best = eval_acc_total
+        best = eval_acc_total
+
+    if task == 'MNLI':
+        best_mis = 0
+        eval_acc_total_mis = 0
+        for (test_step, (test_line, test_label, test_s, test_p)) in enumerate(test_dataset_mis):
+            seg_ids, pad_ids = create_masks(test_s, test_p)
+
+            _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
+            eval_acc_total_mis += eval_acc
+        eval_acc_total_mis /= len(test_labels_mis)
+        if eval_acc_total_mis > best_mis:
+            best_mis = eval_acc_total_mis
+
+   
 
     with writer.as_default():    
         print(f"Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
@@ -187,8 +249,18 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         tf.summary.scalar('Train ACC', train_acc, step=(step+1))
         tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
 
+    if task=='MNLI':
+        return best, best_mis
     return best
 
+RTE_best = 0
+MRPC_best = 0
+COLA_best = 0
+MNLI_best = 0
+MNLI_best_mis = 0
+QNLI_best = 0
+QQP_best = 0
+SST_best = 0
 
 if RTE:
     best1 = tuning('RTE', 2, 32, 4, 200, 3e-4)
@@ -205,11 +277,48 @@ if MRPC:
 
     MRPC_best = max([best1, best2, best3, best4])
 if COLA:
+    matthew.reset_states()
     best1 = tuning('CoLA', 2, 16, 4, 320, 3e-4)
+    matthew.reset_states()
     best2 = tuning('CoLA', 2, 16, 4, 320, 1e-4)
+    matthew.reset_states()
     best3 = tuning('CoLA', 2, 16, 4, 320, 3e-5)
+    matthew.reset_states()
     best4 = tuning('CoLA', 2, 16, 4, 320, 5e-5)
 
     COLA_best = max([best1, best2, best3, best4])
 
-print(f'CoLA: {COLA_best} | RTE: {RTE_best} | MRPC: {MRPC_best} |')
+if MNLI:
+    best1, best_mis1 = tuning('MNLI', 3, 128, 4, 1000, 3e-4)
+    best2, best_mis2 = tuning('MNLI', 3, 128, 4, 1000, 1e-4)
+    best3, best_mis3 = tuning('MNLI', 3, 128, 4, 1000, 3e-5)
+    best4, best_mis4 = tuning('MNLI', 3, 128, 4, 1000, 5e-5)
+
+    MNLI_best = max([best1, best2, best3, best4])
+    MNLI_best_mis = max([best_mis1, best_mis2, best_mis3, best_mis4])
+
+if QNLI:
+    best1 = tuning('QNLI', 2, 32, 4, 1986, 3e-4)
+    best2 = tuning('QNLI', 2, 32, 4, 1986, 1e-4)
+    best3 = tuning('QNLI', 2, 32, 4, 1986, 3e-5)
+    best4 = tuning('QNLI', 2, 32, 4, 1986, 5e-5)
+
+    QNLI_best = max([best1, best2, best3, best4])
+
+if SST:
+    best1 = tuning('SST-2', 2, 16, 4, 1256, 3e-4)
+    best2 = tuning('SST-2', 2, 16, 4, 1256, 1e-4)
+    best3 = tuning('SST-2', 2, 16, 4, 1256, 3e-5)
+    best4 = tuning('SST-2', 2, 16, 4, 1256, 5e-5)
+
+    SST_best = max([best1, best2, best3, best4])
+
+if QQP:
+    best1 = tuning('QQP', 2, 128, 4, 1000, 3e-4)
+    best2 = tuning('QQP', 2, 128, 4, 1000, 1e-4)
+    best3 = tuning('QQP', 2, 128, 4, 1000, 3e-5)
+    best4 = tuning('QQP', 2, 128, 4, 1000, 5e-5)
+
+    QQP_best = max([best1, best2, best3, best4])
+
+print(f'CoLA: {COLA_best} | RTE: {RTE_best} | MRPC: {MRPC_best} | MNLI: m {MNLI_best} mm {MNLI_best_mis} | QNLI: {QNLI_best} | QQP: {QQP_best} | SST: {SST_best} |')
