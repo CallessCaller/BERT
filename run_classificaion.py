@@ -10,6 +10,7 @@ import pickle
 from optimization import WarmUp, AdamWeightDecay
 from tqdm import tqdm
 from tensorflow.keras.mixed_precision import experimental as mixed_precision
+import tensorflow_probability as tfp
 
 RTE = False  # 2437 270
 QQP = True  # 363828 40430
