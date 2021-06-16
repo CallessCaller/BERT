@@ -91,7 +91,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     EPOCHS = epochs
     BATCH_SIZE = batch_size
     total_step = (num_data[task]*EPOCHS)//BATCH_SIZE
-    BUFFER_SIZE = 50
+    BUFFER_SIZE = num_data[task] // BATCH_SIZE
     warm_up_steps = warm_up
 
     lr = lr
@@ -352,7 +352,7 @@ if STS:
     QQP_best = max([best1, best2, best3, best4])
 
 if MNLI:
-    best1, best_mis1 = tuning('MNLI', 3, 64, 4, 1000, 5e-4)
+    best1, best_mis1 = tuning('MNLI', 3, 64, 4, 1000, 1e-4)
     best2, best_mis2 = tuning('MNLI', 3, 32, 4, 1000, 5e-4)
     best3, best_mis3 = tuning('MNLI', 3, 128, 4, 1000, 5e-4)
     best4, best_mis4 = tuning('MNLI', 3, 128, 4, 1000, 1e-3)

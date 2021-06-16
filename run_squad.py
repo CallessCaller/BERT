@@ -178,3 +178,7 @@ def train(version, epochs, batch_size, warm_up, lr):
             predictions = eval()
             with open(f'{version}-{step+1}', 'w') as f:
                 f.write(predictions)
+
+
+train('v1.1', 4, 48, 365, 5e-5)
+train('v2.0', 8, 48, 814, 3e-5)
