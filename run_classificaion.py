@@ -17,7 +17,7 @@ QQP = True  # 363828 40430
 COLA = False # 8550 1042
 QNLI = True # 104620 5453
 MNLI = True # 392575 9815
-SST = True  # 67349 872
+SST = False  # 67349 872
 MRPC = False # 3668 408
 STS = True  # 5749 1500
 
@@ -27,9 +27,9 @@ num_data = {
     'CoLA': 8550,
     'QNLI': 104620,
     'MNLI': 392575,
-    'SST-B':  67349,
+    'SST-2':  67349,
     'MRPC': 3668,
-    'STS-2':  5749,
+    'STS-B':  5749,
 }
 
 path = '../data/GLUE'
@@ -48,8 +48,18 @@ feature_description = {
     'feature3': tf.io.FixedLenFeature([], tf.int64),
 }
 
+feature_description_sts = {
+    'feature0': tf.io.FixedLenFeature([seq_len], tf.int64),
+    'feature1': tf.io.FixedLenFeature([], tf.float32),
+    'feature2': tf.io.FixedLenFeature([], tf.int64),
+    'feature3': tf.io.FixedLenFeature([], tf.int64),
+}
+
 def _parse_function(example):
     return tf.io.parse_example(example, feature_description)
+
+def _parse_function_sts(example):
+    return tf.io.parse_example(example, feature_description_sts)
 
 @tf.function
 def get_accuracy(real, pred):
@@ -90,7 +100,11 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     lr_schedule = WarmUp(initial_learning_rate=lr, decay_schedule_fn=lr_schedule, warmup_steps=warm_up_steps)
     optimizer = AdamWeightDecay(learning_rate=lr_schedule, weight_decay_rate=0.01)
 
-    dataset = dataset.repeat(EPOCHS).shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE).map(_parse_function)
+    if 'STS' in task:
+        dataset = dataset.repeat(EPOCHS).shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE).map(_parse_function_sts)
+    else:
+        dataset = dataset.repeat(EPOCHS).shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE).map(_parse_function)
+    
 
     if task=='MNLI':
         with open(f'{path}/{task}/dev_matched.pickle', 'rb') as f:
@@ -111,7 +125,10 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
             test_sep = pickle.load(f)
             test_mask = pickle.load(f) 
         
-    loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+    if 'STS' in task:
+        loss_object = tf.keras.losses.MeanSquaredError()
+    else:
+        loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     sequence_tensor = tf.convert_to_tensor(
         [[i for i in range(seq_len)] for _ in range(BATCH_SIZE)], 
@@ -152,6 +169,11 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
             label = tf.one_hot(label, depth=2)
             matthew.update_state(label, prediction)
             acc = matthew.result()
+        elif 'STS' in task:
+            label = tf.reshape(label, [-1, 1])
+            label = tf.cast(label, dtype=tf.float32)
+            prediction = tf.cast(prediction, dtype=tf.float32)
+            acc = tfp.stats.correlation(prediction, label)
         else:
             acc, _ = get_accuracy(label, prediction)
 
@@ -160,11 +182,13 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     @tf.function
     def eval(input_ids, label, seg_ids, mask):
         _, _, output = bert(input_ids, seg_ids, mask, False)
-        prediction = classifier(output)
+        prediction = classifier(output, False)
         if task == 'CoLA':
             label = tf.one_hot(label, depth=2)
             matthew.update_state(label, prediction)
             acc = matthew.result()
+        elif 'STS' in task:
+            acc = prediction
         else:
             _, acc = get_accuracy(label, prediction)
 
@@ -189,10 +213,22 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                 seg_ids, pad_ids = create_masks(test_s, test_p)
 
                 _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
-                eval_acc_total += eval_acc
+                if 'STS' in task:
+                    if test_step == 0:
+                        eval_acc_total = eval_acc
+                    else:
+                        eval_acc_total = tf.concat([eval_acc_total, eval_acc], axis=0)
+                else:
+                    eval_acc_total += eval_acc
+                
 
             if task == 'CoLA':
                 eval_acc_total = eval_acc
+            elif 'STS' in task:
+                label = tf.reshape(test_labels, [-1, 1])
+                label = tf.cast(label, dtype=tf.float32)
+                eval_acc_total = tf.cast(eval_acc_total, dtype=tf.float32)
+                eval_acc_total = tfp.stats.correlation(eval_acc_total, label)
             else:
                 eval_acc_total /= len(test_labels)
 
@@ -212,20 +248,33 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                     best_mis = eval_acc_total_mis
 
             with writer.as_default():    
-                print(f"{task} Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
-                tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
+                print(f"[{task}] Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
+                if not 'STS' in task:
+                    tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
         with writer.as_default():    
-                tf.summary.scalar('Loss', loss, step=(step+1))
-                tf.summary.scalar('Train ACC', train_acc, step=(step+1))
+                if not 'STS' in task:
+                    tf.summary.scalar('Loss', loss, step=(step+1))
+                    tf.summary.scalar('Train ACC', train_acc, step=(step+1))
 
     eval_acc_total = 0
     for (eval_step, (test_line, test_label, test_s, test_p)) in enumerate(test_dataset):
         seg_ids, pad_ids = create_masks(test_s, test_p)
 
         _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
-        eval_acc_total += eval_acc
+        if 'STS' in task:
+            if eval_step == 0:
+                eval_acc_total = eval_acc
+            else:
+                eval_acc_total = tf.concat([eval_acc_total, eval_acc], axis=0)
+        else:
+            eval_acc_total += eval_acc
     if task == 'CoLA':
         eval_acc_total = eval_acc
+    elif 'STS' in task:
+        label = tf.reshape(test_labels, [-1, 1])
+        label = tf.cast(label, dtype=tf.float32)
+        eval_acc_total = tf.cast(eval_acc_total, dtype=tf.float32)
+        eval_acc_total = tfp.stats.correlation(eval_acc_total, label)
     else:
         eval_acc_total /= len(test_labels)
     if eval_acc_total > best:
@@ -246,10 +295,11 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
    
 
     with writer.as_default():    
-        print(f"{task} Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
-        tf.summary.scalar('Loss', loss, step=(step+1))
-        tf.summary.scalar('Train ACC', train_acc, step=(step+1))
-        tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
+        print(f"[{task}] Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
+        if not 'STS' in task:
+            tf.summary.scalar('Loss', loss, step=(step+1))
+            tf.summary.scalar('Train ACC', train_acc, step=(step+1))
+            tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
 
     if task=='MNLI':
         print(f'matched: {best} | mismathced: {best_mis}')
@@ -292,22 +342,26 @@ if COLA:
 
     COLA_best = max([best1, best2, best3, best4])
 
-if MNLI:
-    best1, best_mis1 = tuning('MNLI', 3, 128, 4, 1000, 3e-4)
-    best2, best_mis2 = tuning('MNLI', 3, 128, 4, 1000, 1e-4)
-    best3, best_mis3 = tuning('MNLI', 3, 128, 4, 1000, 3e-5)
-    best4, best_mis4 = tuning('MNLI', 3, 128, 4, 1000, 5e-5)
+if STS:
+    best1 = tuning('STS-B', 1, 32, 20, 214, 2e-5)
+    best2 = tuning('STS-B', 1, 16, 20, 214, 2e-5)
+    best3 = tuning('STS-B', 1, 32, 20, 214, 5e-4)
+    best4 = tuning('STS-B', 1, 16, 20, 214, 5e-4)
 
-    MNLI_best = max([best1, best2, best3, best4])
-    MNLI_best_mis = max([best_mis1, best_mis2, best_mis3, best_mis4])
+    QQP_best = max([best1, best2, best3, best4])
+
+if MNLI:
+    best1, best_mis1 = tuning('MNLI', 3, 128, 4, 1000, 5e-4)
+    best2, best_mis2 = tuning('MNLI', 3, 128, 4, 1000, 3e-4)
+
+    MNLI_best = max([best1, best2])
+    MNLI_best_mis = max([best_mis1, best_mis2])
 
 if QNLI:
-    best1 = tuning('QNLI', 2, 32, 4, 1986, 3e-4)
-    best2 = tuning('QNLI', 2, 32, 4, 1986, 1e-4)
-    best3 = tuning('QNLI', 2, 32, 4, 1986, 3e-5)
-    best4 = tuning('QNLI', 2, 32, 4, 1986, 5e-5)
+    best1 = tuning('QNLI', 2, 32, 4, 1986, 5e-4)
+    best2 = tuning('QNLI', 2, 32, 4, 1986, 3e-4)
 
-    QNLI_best = max([best1, best2, best3, best4])
+    QNLI_best = max([best1, best2])
 
 if SST:
     best1 = tuning('SST-2', 2, 16, 4, 1256, 3e-4)
@@ -318,11 +372,9 @@ if SST:
     SST_best = max([best1, best2, best3, best4])
 
 if QQP:
-    best1 = tuning('QQP', 2, 128, 4, 1000, 3e-4)
+    best1 = tuning('QQP', 2, 128, 4, 1000, 5e-4)
     best2 = tuning('QQP', 2, 128, 4, 1000, 1e-4)
-    best3 = tuning('QQP', 2, 128, 4, 1000, 3e-5)
-    best4 = tuning('QQP', 2, 128, 4, 1000, 5e-5)
 
-    QQP_best = max([best1, best2, best3, best4])
+    QQP_best = max([best1, best2])
 
 print(f'CoLA: {COLA_best} | RTE: {RTE_best} | MRPC: {MRPC_best} | MNLI: m {MNLI_best} mm {MNLI_best_mis} | QNLI: {QNLI_best} | QQP: {QQP_best} | SST: {SST_best} |')

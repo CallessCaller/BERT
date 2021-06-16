@@ -94,7 +94,7 @@ files = [path+x for x in file_names]
 
 
 for file in files:
-    if os.path.exists(f'{file[:-5]}.tfrecord'): continue
+    #if os.path.exists(f'{file[:-5]}.tfrecord'): continue
     with open(file, 'r') as f:
         squad = json.load(f)
     lines = []
@@ -115,18 +115,18 @@ for file in files:
 
             for k in range(len(squad['data'][i]['paragraphs'][j]['qas'])):
                 if len(squad['data'][i]['paragraphs'][j]['qas'][k]['answers']) == 0: continue
-                start =  squad['data'][i]['paragraphs'][j]['qas'][k]['answers'][0]['answer_start']
-                end = start + len(squad['data'][i]['paragraphs'][j]['qas'][k]['answers'][0]['text'])
-                start_id = len(sp.EncodeAsIds(context[:start]))
-                end_id = len(sp.EncodeAsIds(context[:end])) - 1
-
                 question = sp.EncodeAsIds(squad['data'][i]['paragraphs'][j]['qas'][k]['question'])
 
                 if len(encoded) + len(question) <= max_seq - 2:
+                    start =  squad['data'][i]['paragraphs'][j]['qas'][k]['answers'][0]['answer_start']
+                    end = start + len(squad['data'][i]['paragraphs'][j]['qas'][k]['answers'][0]['text'])
+                    start_id = len(sp.EncodeAsIds(context[:start]))
+                    end_id = len(sp.EncodeAsIds(context[:end])) - 1
+
                     tmp = [CLS] + question + [SEP] + encoded
             
-                    start_label.append(start_id)
-                    end_label.append(end_id)
+                    start_label.append(len(question) + 2 + start_id)
+                    end_label.append(len(question) + 2 + end_id)
                     masks.append(len(tmp))
 
                     tmp += pads[len(tmp):]
