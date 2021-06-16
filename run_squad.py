@@ -175,12 +175,12 @@ def train(version, epochs, batch_size, warm_up, lr):
 
         loss, train_acc = train(input_ids, start_label, end_label, seg_ids, pad_ids)
 
-        if (step + 1) % 100 == 0:
+        if (step + 1) % 500 == 0:
             with writer.as_default():    
                 print(f"[{version}] Training loss: {loss} | Train ACC: {train_acc}")
                 tf.summary.scalar('Loss', loss, step=(step+1))
                 tf.summary.scalar('Train ACC', train_acc, step=(step+1))
-        if (step + 1) % 500 == 0:
+        if (step + 1) % 2000 == 0:
             predictions = eval()
             with open(f'./{version}/{version}-{step+1}_{lr}', 'w') as f:
                 f.write(json.dumps(predictions))
