@@ -107,6 +107,7 @@ for file in files:
 
     masks = []
     pads = [0 for _ in range(max_seq)]
+    ids = []
 
     for i in tqdm(range(len(squad['data']))):
         
@@ -136,10 +137,12 @@ for file in files:
 
                     sep_position = tmp.index(SEP)
                     sep_positions.append(sep_position)
+
+                    ids.append(id)
     
     print(len(lines), len(start_label), len(end_label), len(sep_positions), len(masks))
     
     if 'train' in file:
         write_binary_file(file[:-5], lines, start_label, end_label, sep_positions, masks)
     elif 'dev' in file:
-        write_pickle_file(file[:-5], lines, start_label, end_label, sep_positions, masks, id)
+        write_pickle_file(file[:-5], lines, start_label, end_label, sep_positions, masks, ids)

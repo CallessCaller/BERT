@@ -34,7 +34,7 @@ class PretrainerBERTv2(models.Model):
         mlm_prediction = self.layernorm(mlm_prediction)
         mlm_prediction = self.dense_for_mlm(mlm_prediction)
 
-        return mlm_prediction, nsp_prediction, pooled_output
+        return mlm_prediction, nsp_prediction, pooled_output, x
 
 
 class PretrainerBERT(models.Model):
@@ -58,7 +58,7 @@ class PretrainerBERT(models.Model):
         nsp_prediction = self.dense_for_nsp(x[:,0])
         mlm_prediction = self.dense_for_mlm(x)
 
-        return mlm_prediction, nsp_prediction, x[:,0]
+        return mlm_prediction, nsp_prediction, x[:,0], x
 
 
 class BERT(layers.Layer):

@@ -7,6 +7,7 @@ from tensorflow.keras import optimizers
 import tensorflow_addons as tfa
 import numpy as np
 import pickle
+import json
 
 from optimization import WarmUp, AdamWeightDecay
 from tqdm import tqdm
@@ -17,7 +18,7 @@ spm_model = './30k-clean.model'
 sp = spm.SentencePieceProcessor()
 sp.load(spm_model)
 
-path = '../data/squad'
+path = '../data/squad/'
 hidden_size = 128
 dropout_rate = 0.1
 num_heads = 2
@@ -118,7 +119,7 @@ def train(version, epochs, batch_size, warm_up, lr):
     def train(input_ids, start_label, end_label, seg_ids, mask):
         
         with tf.GradientTape() as tape:
-            _, _, output = bert(input_ids, seg_ids, mask)
+            _, _, _, output = bert(input_ids, seg_ids, mask)
             start_prediction, end_prediction = classifier(output)
             start_loss = start_loss_object(start_label, start_prediction)
             end_loss = end_loss_object(end_label, end_prediction)
@@ -145,23 +146,28 @@ def train(version, epochs, batch_size, warm_up, lr):
         
             #5 - (a.index(3)+1)
             with tf.GradientTape() as tape:
-                _, _, output = bert(input_ids, seg_ids, pad_ids)
+                _, _, _, output = bert(test_line, seg_ids, pad_ids)
                 start_prediction, end_prediction = classifier(output)
 
-            start_id = tf.argmax(start_prediction, axis=-1).numpy() - test_s -1
-            end_id = tf.argmax(end_prediction, axis=-1).numpy() - test_s -1
+            start_id = tf.argmax(start_prediction, axis=-1).numpy() - test_s.numpy() -1
+            end_id = tf.argmax(end_prediction, axis=-1).numpy() - test_s.numpy() -1
 
+            test_line = test_line.numpy()
             for i, x in enumerate(start_id):
-                if end_id[i] > x:
-                    predictions[ids[(BATCH_SIZE*test_step)+i]] = sp.Decode(test_line[i][start_id:end_id])
-                else:
-                    predictions[ids[(BATCH_SIZE*test_step)+i]] = ''
+                a = list(test_line[i][x:end_id[i]])
+                for k, x in enumerate(a):
+                    a[k] = int(x)
+                if end_id[i] > 0 and x > 0:    
+                    if end_id[i] > x:
+                        predictions[ids[(BATCH_SIZE*test_step)+i]] = sp.DecodeIdsWithCheck(a)
+                    else:
+                        predictions[ids[(BATCH_SIZE*test_step)+i]] = ''
         
         return predictions
         
 
 
-    for step, data in enumerate(dataset):
+    for step, data in enumerate(tqdm(dataset)):
         input_ids = data['feature0']
         start_label = data['feature1']
         end_label = data['feature2']
@@ -174,11 +180,23 @@ def train(version, epochs, batch_size, warm_up, lr):
                 print(f"[{version}] Training loss: {loss} | Train ACC: {train_acc}")
                 tf.summary.scalar('Loss', loss, step=(step+1))
                 tf.summary.scalar('Train ACC', train_acc, step=(step+1))
-        if (step + 1) % 1000 == 0:
+        if (step + 1) % 500 == 0:
             predictions = eval()
-            with open(f'{version}-{step+1}', 'w') as f:
-                f.write(predictions)
+            with open(f'./{version}/{version}-{step+1}_{lr}', 'w') as f:
+                f.write(json.dumps(predictions))
+            with open(f'./{version}/{version}-{step+1}_{lr}.txt', 'w') as f:
+                print(predictions, file=f)
+
+    predictions = eval()
+    with open(f'./{version}/{version}_{lr}', 'w') as f:
+        f.write(json.dumps(predictions))
+    with open(f'./{version}/{version}_{lr}.txt', 'w') as f:
+        print(predictions, file=f)
 
 
-train('v1.1', 4, 48, 365, 5e-5)
-train('v2.0', 8, 48, 814, 3e-5)
+train('v1.1', 10, 48, 365, 5e-5)
+train('v1.1', 10, 48, 365, 5e-4)
+train('v1.1', 10, 48, 365, 1e-3)
+train('v2.0', 10, 48, 814, 5e-5)
+train('v2.0', 10, 48, 814, 5e-4)
+train('v2.0', 10, 48, 814, 1e-3)

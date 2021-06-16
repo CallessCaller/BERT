@@ -24,8 +24,8 @@ class ClassifierBERT(tf.keras.models.Model):
         self.fc = tf.keras.layers.Dense(num_class, kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
 
     def call(self, prediction, training=True):
-        # prediction = self.dense(prediction)
-        prediction = tf.nn.tanh(prediction)
+        prediction = self.dense(prediction)
+        #prediction = tf.nn.tanh(prediction)
         prediction = self.dropout(prediction, training=training)
         prediction = self.fc(prediction)
 

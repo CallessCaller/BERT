@@ -99,6 +99,8 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     lr_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=lr, decay_steps=total_step, end_learning_rate=0.)
     lr_schedule = WarmUp(initial_learning_rate=lr, decay_schedule_fn=lr_schedule, warmup_steps=warm_up_steps)
     optimizer = AdamWeightDecay(learning_rate=lr_schedule, weight_decay_rate=0.01)
+    f1 = tfa.metrics.F1Score(num_class)
+    f1_score = None
 
     if 'STS' in task:
         dataset = dataset.repeat(EPOCHS).shuffle(BUFFER_SIZE).batch(BATCH_SIZE).prefetch(tf.data.AUTOTUNE).map(_parse_function_sts)
@@ -156,7 +158,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     def train(input_ids, label, seg_ids, mask):
         
         with tf.GradientTape() as tape:
-            _, _, output = bert(input_ids, seg_ids, mask, False)
+            _, _, output, _ = bert(input_ids, seg_ids, mask, False)
             prediction = classifier(output)
             loss = loss_object(label, prediction)
 
@@ -181,7 +183,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     
     @tf.function
     def eval(input_ids, label, seg_ids, mask):
-        _, _, output = bert(input_ids, seg_ids, mask, False)
+        _, _, output, _ = bert(input_ids, seg_ids, mask, False)
         prediction = classifier(output, False)
         if task == 'CoLA':
             label = tf.one_hot(label, depth=2)
@@ -191,11 +193,15 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
             acc = prediction
         else:
             _, acc = get_accuracy(label, prediction)
+            label = tf.one_hot(label, depth=num_class)
+            f1.update_state(label, prediction)
+            f1_score = f1.result()
+            return loss, (acc, f1_score)
 
         return loss, acc
 
 
-    for step, data in enumerate(dataset):
+    for step, data in enumerate(tqdm(dataset)):
         input_ids = data['feature0']
         label = data['feature1']
         seg_ids, pad_ids = create_masks(data['feature2'], data['feature3'])
@@ -213,6 +219,8 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                 seg_ids, pad_ids = create_masks(test_s, test_p)
 
                 _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
+                if 'CoLA' not in task or 'STS' not in task:
+                    eval_acc, f1_score = eval_acc
                 if 'STS' in task:
                     if test_step == 0:
                         eval_acc_total = eval_acc
@@ -240,15 +248,16 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                 eval_acc_total_mis = 0
                 for (test_step, (test_line, test_label, test_s, test_p)) in enumerate(test_dataset_mis):
                     seg_ids, pad_ids = create_masks(test_s, test_p)
-
                     _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
+                    if 'CoLA' not in task or 'STS' not in task:
+                        eval_acc, f1_score = eval_acc
                     eval_acc_total_mis += eval_acc
                 eval_acc_total_mis /= len(test_labels_mis)
                 if eval_acc_total_mis > best_mis:
                     best_mis = eval_acc_total_mis
 
             with writer.as_default():    
-                print(f"[{task}] Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
+                #print(f"[{task}] Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
                 if not 'STS' in task:
                     tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
         with writer.as_default():    
@@ -261,6 +270,8 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         seg_ids, pad_ids = create_masks(test_s, test_p)
 
         _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
+        if 'CoLA' not in task or 'STS' not in task:
+            eval_acc, f1_score = eval_acc
         if 'STS' in task:
             if eval_step == 0:
                 eval_acc_total = eval_acc
@@ -287,6 +298,8 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
             seg_ids, pad_ids = create_masks(test_s, test_p)
 
             _, eval_acc = eval(test_line, test_label, seg_ids, pad_ids)
+            if 'CoLA' not in task or 'STS' not in task:
+                eval_acc, f1_score = eval_acc
             eval_acc_total_mis += eval_acc
         eval_acc_total_mis /= len(test_labels_mis)
         if eval_acc_total_mis > best_mis:
@@ -295,7 +308,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
    
 
     with writer.as_default():    
-        print(f"[{task}] Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
+        #print(f"[{task}] Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
         if not 'STS' in task:
             tf.summary.scalar('Loss', loss, step=(step+1))
             tf.summary.scalar('Train ACC', train_acc, step=(step+1))
@@ -305,15 +318,19 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         print(f'matched: {best} | mismathced: {best_mis}')
         return best, best_mis
     print(f'best: {best}')
+    if 'MRPC' in task or 'QQP' in task:
+        return best, f1_score
     return best
 
 RTE_best = 0
 MRPC_best = 0
+MRPC_best_f1 = 0
 COLA_best = 0
 MNLI_best = 0
 MNLI_best_mis = 0
 QNLI_best = 0
 QQP_best = 0
+QQP_best_f1 = 0
 SST_best = 0
 
 if RTE:
@@ -324,12 +341,16 @@ if RTE:
 
     RTE_best = max([best1, best2, best3, best4])
 if MRPC:
-    best1 = tuning('MRPC', 2, 32, 4, 200, 3e-4)
-    best2 = tuning('MRPC', 2, 32, 4, 200, 1e-4)
-    best3 = tuning('MRPC', 2, 32, 4, 200, 3e-5)
-    best4 = tuning('MRPC', 2, 32, 4, 200, 5e-5)
+    best3, f1_score3 = tuning('MRPC', 2, 16, 10, 200, 3e-5)
+    print(f1_score3)
+    best4, f1_score4 = tuning('MRPC', 2, 16, 10, 200, 3e-5)
+    print(f1_score4)
 
-    MRPC_best = max([best1, best2, best3, best4])
+    MRPC_best = max([best3, best4])
+    #MRPC_best_f1 = max([f1_score3, f1_score4])
+
+    print(MRPC_best_f1)
+
 if COLA:
     matthew.reset_states()
     best1 = tuning('CoLA', 2, 16, 4, 320, 3e-4)
@@ -352,13 +373,19 @@ if STS:
     QQP_best = max([best1, best2, best3, best4])
 
 if MNLI:
-    best1, best_mis1 = tuning('MNLI', 3, 64, 4, 1000, 1e-4)
-    best2, best_mis2 = tuning('MNLI', 3, 32, 4, 1000, 5e-4)
-    best3, best_mis3 = tuning('MNLI', 3, 128, 4, 1000, 5e-4)
-    best4, best_mis4 = tuning('MNLI', 3, 128, 4, 1000, 1e-3)
+    best1, best_mis1 = tuning('MNLI', 3, 64, 4, 500, 8e-4)
+    best2, best_mis2 = tuning('MNLI', 3, 64, 4, 1500, 8e-4)
+    best3, best_mis3 = tuning('MNLI', 3, 64, 4, 1000, 8e-4)
+    best4, best_mis4 = tuning('MNLI', 3, 64, 4, 1000, 1e-3)
+    best5, best_mis5 = tuning('MNLI', 3, 64, 4, 500, 1e-3)
+    best6, best_mis6 = tuning('MNLI', 3, 64, 4, 1500, 1e-3)
+    best7, best_mis7 = tuning('MNLI', 3, 128, 4, 1000, 1e-3)
+    best8, best_mis8 = tuning('MNLI', 3, 128, 4, 1000, 8e-4)
+    best9, best_mis9 = tuning('MNLI', 3, 256, 4, 1000, 8e-4)
+    best0, best_mis0 = tuning('MNLI', 3, 256, 4, 1000, 1e-3)
 
-    MNLI_best = max([best1, best2, best3, best4])
-    MNLI_best_mis = max([best_mis1, best_mis2, best_mis3, best_mis4])
+    MNLI_best = max([best1, best2, best3, best4, best5, best6, best7, best8, best9, best0])
+    MNLI_best_mis = max([best_mis1, best_mis2, best_mis3, best_mis4, best_mis5, best_mis6, best_mis7, best_mis8, best_mis9, best_mis0])
 
 if QNLI:
     best1 = tuning('QNLI', 2, 32, 4, 1986, 5e-4)
@@ -375,9 +402,17 @@ if SST:
     SST_best = max([best1, best2, best3, best4])
 
 if QQP:
-    best1 = tuning('QQP', 2, 128, 4, 1000, 5e-4)
-    best2 = tuning('QQP', 2, 128, 4, 1000, 1e-4)
+    best1, f1_score1 = tuning('QQP', 2, 128, 4, 1000, 5e-4)
+    print(f1_score1)
+    best2, f1_score2 = tuning('QQP', 2, 128, 4, 1000, 3e-4)
+    print(f1_score2)
+    best2, f1_score3 = tuning('QQP', 2, 256, 4, 1000, 5e-4)
+    print(f1_score3)
+    best2, f1_score4 = tuning('QQP', 2, 64, 4, 1000, 5e-4)
+    print(f1_score4)
 
     QQP_best = max([best1, best2])
+    #QQP_best_f1 = max([f1_score1, f1_score2])
+    print(QQP_best_f1)
 
-print(f'CoLA: {COLA_best} | RTE: {RTE_best} | MRPC: {MRPC_best} | MNLI: m {MNLI_best} mm {MNLI_best_mis} | QNLI: {QNLI_best} | QQP: {QQP_best} | SST: {SST_best} |')
+print(f'CoLA: {COLA_best} | RTE: {RTE_best} | MRPC (F1/ACC): {MRPC_best_f1} / {MRPC_best} | MNLI: m {MNLI_best} mm {MNLI_best_mis} | QNLI: {QNLI_best} | QQP (F1/ACC): {QQP_best_f1} / {QQP_best} | SST: {SST_best} |')

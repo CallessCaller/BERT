@@ -145,7 +145,7 @@ if ckpt_manager.latest_checkpoint:
 def build_model(input_ids, mlm_label, nsp_label, seg_ids, mask):
     
     with tf.GradientTape() as tape:
-        mlm_prediction, nsp_prediction, pooled_output = model(input_ids, seg_ids, mask)
+        mlm_prediction, nsp_prediction, pooled_output, _ = model(input_ids, seg_ids, mask)
 
     accum_gradients = [tf.zeros_like(x, dtype=tf.float32) for x in model.trainable_variables]
 
@@ -155,7 +155,7 @@ def build_model(input_ids, mlm_label, nsp_label, seg_ids, mask):
 def gradient_accumulation(input_ids, mlm_label, nsp_label, seg_ids, mask, accum_gradients):
     
     with tf.GradientTape() as tape:
-        mlm_prediction, nsp_prediction, pooled_output = model(input_ids, seg_ids, mask)
+        mlm_prediction, nsp_prediction, pooled_output, _ = model(input_ids, seg_ids, mask)
         mlm_loss = mlm_loss_function(mlm_label, mlm_prediction)
         nsp_loss = nsp_loss_object(nsp_label, nsp_prediction)
 
@@ -172,7 +172,7 @@ def gradient_accumulation(input_ids, mlm_label, nsp_label, seg_ids, mask, accum_
 def gradient_update(input_ids, mlm_label, nsp_label, seg_ids, mask, accum_gradients):
     
     with tf.GradientTape() as tape:
-        mlm_prediction, nsp_prediction, pooled_output = model(input_ids, seg_ids, mask)
+        mlm_prediction, nsp_prediction, pooled_output, _ = model(input_ids, seg_ids, mask)
         mlm_loss = mlm_loss_function(mlm_label, mlm_prediction)
         nsp_loss = nsp_loss_object(nsp_label, nsp_prediction)
 
