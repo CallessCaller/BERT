@@ -1,5 +1,6 @@
 from bert import PretrainerBERT
 from bert_classifier import SquadBERT
+import sentencepiece as spm
 import datetime
 import tensorflow as tf
 from tensorflow.keras import optimizers
@@ -10,6 +11,11 @@ import pickle
 from optimization import WarmUp, AdamWeightDecay
 from tqdm import tqdm
 from tensorflow.keras.mixed_precision import experimental as mixed_precision
+
+
+spm_model = './30k-clean.model'
+sp = spm.SentencePieceProcessor()
+sp.load(spm_model)
 
 path = '../data/squad'
 hidden_size = 128
@@ -77,9 +83,11 @@ def train(version, epochs, batch_size, warm_up, lr):
 
     with open(f'{path}dev-{version}.pickle', 'rb') as f:
         test_lines = pickle.load(f)
-        test_labels = pickle.load(f)
+        test_start_labels = pickle.load(f)
+        test_end_labels = pickle.load(f)
         test_sep = pickle.load(f)
-        test_mask = pickle.load(f) 
+        test_mask = pickle.load(f)
+        ids = pickle.load(f)
 
     start_loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
     end_loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
@@ -127,6 +135,31 @@ def train(version, epochs, batch_size, warm_up, lr):
 
         return loss, (start_acc + end_acc) / 2
 
+    def eval():
+        test_dataset = tf.data.Dataset.from_tensor_slices((test_lines, test_sep, test_mask))
+        test_dataset = test_dataset.batch(BATCH_SIZE, drop_remainder=False).repeat(1)
+        predictions = {}
+
+        for (test_step, (test_line, test_s, test_p)) in enumerate(test_dataset):
+            seg_ids, pad_ids = create_masks(test_s, test_p)
+        
+            #5 - (a.index(3)+1)
+            with tf.GradientTape() as tape:
+                _, _, output = bert(input_ids, seg_ids, pad_ids)
+                start_prediction, end_prediction = classifier(output)
+
+            start_id = tf.argmax(start_prediction, axis=-1).numpy() - test_s -1
+            end_id = tf.argmax(end_prediction, axis=-1).numpy() - test_s -1
+
+            for i, x in enumerate(start_id):
+                if end_id[i] > x:
+                    predictions[ids[(BATCH_SIZE*test_step)+i]] = sp.Decode(test_line[i][start_id:end_id])
+                else:
+                    predictions[ids[(BATCH_SIZE*test_step)+i]] = ''
+        
+        return predictions
+        
+
 
     for step, data in enumerate(dataset):
         input_ids = data['feature0']
@@ -135,3 +168,13 @@ def train(version, epochs, batch_size, warm_up, lr):
         seg_ids, pad_ids = create_masks(data['feature3'], data['feature4'])
 
         loss, train_acc = train(input_ids, start_label, end_label, seg_ids, pad_ids)
+
+        if (step + 1) % 100 == 0:
+            with writer.as_default():    
+                print(f"[{version}] Training loss: {loss} | Train ACC: {train_acc}")
+                tf.summary.scalar('Loss', loss, step=(step+1))
+                tf.summary.scalar('Train ACC', train_acc, step=(step+1))
+        if (step + 1) % 1000 == 0:
+            predictions = eval()
+            with open(f'{version}-{step+1}', 'w') as f:
+                f.write(predictions)

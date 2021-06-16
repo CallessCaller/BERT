@@ -19,7 +19,7 @@ class ClassifierBERT(tf.keras.models.Model):
     def __init__(self, num_class, num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate=0.1):
         super().__init__()
 
-        self.dense = tf.keras.layers.Dense(hidden_size, activation='gelu', kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
+        self.dense = tf.keras.layers.Dense(hidden_size, activation='tanh', kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
         self.dropout = tf.keras.layers.Dropout(dropout_rate)
         self.fc = tf.keras.layers.Dense(num_class, kernel_initializer=tf.keras.initializers.TruncatedNormal(stddev=0.02))
 

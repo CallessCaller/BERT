@@ -70,7 +70,7 @@ def write_binary_file(file_name, lines, start_labels, end_labels, sep_positions,
     print('Writing Complete!')
 
 
-def write_pickle_file(file_name, lines, start_labels, end_labels, sep_positions, masks):
+def write_pickle_file(file_name, lines, start_labels, end_labels, sep_positions, masks, id):
     lines = np.array(lines)
     start_labels = np.array(start_labels)
     end_labels = np.array(end_labels)
@@ -84,6 +84,7 @@ def write_pickle_file(file_name, lines, start_labels, end_labels, sep_positions,
         pickle.dump(end_labels, f)
         pickle.dump(sep_positions, f)
         pickle.dump(masks, f)
+        pickle.dump(id, f)
     print('Writing Complete!')
 
 
@@ -94,7 +95,7 @@ files = [path+x for x in file_names]
 
 
 for file in files:
-    #if os.path.exists(f'{file[:-5]}.tfrecord'): continue
+    if os.path.exists(f'{file[:-5]}.tfrecord'): continue
     with open(file, 'r') as f:
         squad = json.load(f)
     lines = []
@@ -116,6 +117,7 @@ for file in files:
             for k in range(len(squad['data'][i]['paragraphs'][j]['qas'])):
                 if len(squad['data'][i]['paragraphs'][j]['qas'][k]['answers']) == 0: continue
                 question = sp.EncodeAsIds(squad['data'][i]['paragraphs'][j]['qas'][k]['question'])
+                id = squad['data'][i]['paragraphs'][j]['qas'][k]['id']
 
                 if len(encoded) + len(question) <= max_seq - 2:
                     start =  squad['data'][i]['paragraphs'][j]['qas'][k]['answers'][0]['answer_start']
@@ -140,4 +142,4 @@ for file in files:
     if 'train' in file:
         write_binary_file(file[:-5], lines, start_label, end_label, sep_positions, masks)
     elif 'dev' in file:
-        write_pickle_file(file[:-5], lines, start_label, end_label, sep_positions, masks)
+        write_pickle_file(file[:-5], lines, start_label, end_label, sep_positions, masks, id)

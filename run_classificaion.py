@@ -15,11 +15,11 @@ import tensorflow_probability as tfp
 RTE = False  # 2437 270
 QQP = True  # 363828 40430
 COLA = False # 8550 1042
-QNLI = True # 104620 5453
+QNLI = False # 104620 5453
 MNLI = True # 392575 9815
 SST = False  # 67349 872
 MRPC = False # 3668 408
-STS = True  # 5749 1500
+STS = False  # 5749 1500
 
 num_data = {
     'RTE':  2437,
@@ -156,7 +156,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     def train(input_ids, label, seg_ids, mask):
         
         with tf.GradientTape() as tape:
-            _, _, output = bert(input_ids, seg_ids, mask)
+            _, _, output = bert(input_ids, seg_ids, mask, False)
             prediction = classifier(output)
             loss = loss_object(label, prediction)
 
@@ -343,19 +343,22 @@ if COLA:
     COLA_best = max([best1, best2, best3, best4])
 
 if STS:
-    best1 = tuning('STS-B', 1, 32, 20, 214, 2e-5)
-    best2 = tuning('STS-B', 1, 16, 20, 214, 2e-5)
-    best3 = tuning('STS-B', 1, 32, 20, 214, 5e-4)
-    best4 = tuning('STS-B', 1, 16, 20, 214, 5e-4)
+    best1 = tuning('STS-B', 1, 64, 20, 80, 1e-3)
+    best2 = tuning('STS-B', 1, 64, 20, 100, 1e-3)
+    best3 = tuning('STS-B', 1, 32, 20, 214, 1e-3)
+    best4 = tuning('STS-B', 1, 16, 10, 214, 1e-3)
+
 
     QQP_best = max([best1, best2, best3, best4])
 
 if MNLI:
-    best1, best_mis1 = tuning('MNLI', 3, 128, 4, 1000, 5e-4)
-    best2, best_mis2 = tuning('MNLI', 3, 128, 4, 1000, 3e-4)
+    best1, best_mis1 = tuning('MNLI', 3, 64, 4, 1000, 5e-4)
+    best2, best_mis2 = tuning('MNLI', 3, 32, 4, 1000, 5e-4)
+    best3, best_mis3 = tuning('MNLI', 3, 128, 4, 1000, 5e-4)
+    best4, best_mis4 = tuning('MNLI', 3, 128, 4, 1000, 1e-3)
 
-    MNLI_best = max([best1, best2])
-    MNLI_best_mis = max([best_mis1, best_mis2])
+    MNLI_best = max([best1, best2, best3, best4])
+    MNLI_best_mis = max([best_mis1, best_mis2, best_mis3, best_mis4])
 
 if QNLI:
     best1 = tuning('QNLI', 2, 32, 4, 1986, 5e-4)
