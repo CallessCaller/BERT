@@ -61,6 +61,7 @@ def get_accuracy(real, pred):
 matthew = tfa.metrics.MatthewsCorrelationCoefficient(num_classes=2)
 
 def tuning(task, num_class, batch_size, epochs, warm_up, lr):
+    print(f'Doing {task}...')
     best = 0
     bert = PretrainerBERT(num_layers, vocab_size, seq_len, hidden_size, dff, num_heads, dropout_rate)
     optimizer = tfa.optimizers.LAMB(learning_rate=0.00176, weight_decay_rate=0.01)
@@ -211,7 +212,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                     best_mis = eval_acc_total_mis
 
             with writer.as_default():    
-                print(f"Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
+                print(f"{task} Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
                 tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
         with writer.as_default():    
                 tf.summary.scalar('Loss', loss, step=(step+1))
@@ -245,13 +246,15 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
    
 
     with writer.as_default():    
-        print(f"Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
+        print(f"{task} Training loss: {loss} | Train ACC: {train_acc} | Eval ACC: {eval_acc_total}")
         tf.summary.scalar('Loss', loss, step=(step+1))
         tf.summary.scalar('Train ACC', train_acc, step=(step+1))
         tf.summary.scalar('Eval ACC', eval_acc_total, step=(step+1))
 
     if task=='MNLI':
+        print(f'matched: {best} | mismathced: {best_mis}')
         return best, best_mis
+    print(f'best: {best}')
     return best
 
 RTE_best = 0
