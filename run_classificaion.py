@@ -13,12 +13,12 @@ from tensorflow.keras.mixed_precision import experimental as mixed_precision
 import tensorflow_probability as tfp
 
 RTE = False  # 2437 270
-QQP = True  # 363828 40430
+QQP = False  # 363828 40430
 COLA = False # 8550 1042
 QNLI = False # 104620 5453
-MNLI = True # 392575 9815
+MNLI = False # 392575 9815
 SST = False  # 67349 872
-MRPC = False # 3668 408
+MRPC = True # 3668 408
 STS = False  # 5749 1500
 
 num_data = {
@@ -99,7 +99,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     lr_schedule = tf.keras.optimizers.schedules.PolynomialDecay(initial_learning_rate=lr, decay_steps=total_step, end_learning_rate=0.)
     lr_schedule = WarmUp(initial_learning_rate=lr, decay_schedule_fn=lr_schedule, warmup_steps=warm_up_steps)
     optimizer = AdamWeightDecay(learning_rate=lr_schedule, weight_decay_rate=0.01)
-    f1 = tfa.metrics.F1Score(num_class)
+    f1 = tfa.metrics.F1Score(1)
     f1_score = None
 
     if 'STS' in task:
@@ -192,10 +192,16 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         elif 'STS' in task:
             acc = prediction
         else:
+            prediction = tf.cast(tf.argmax(prediction, axis=-1), dtype=tf.float32)
             _, acc = get_accuracy(label, prediction)
-            label = tf.one_hot(label, depth=num_class)
+            
+            prediction = tf.reshape(prediction, [-1, 1])
+            prediction = tf.cast(prediction, dtype=tf.float32)
+            label = tf.reshape(label, [-1, 1])
+            label = tf.cast(label, dtype=tf.float32)
             f1.update_state(label, prediction)
             f1_score = f1.result()
+            print(f1_score)
             return loss, (acc, f1_score)
 
         return loss, acc

@@ -70,7 +70,7 @@ def write_binary_file(file_name, lines, start_labels, end_labels, sep_positions,
     print('Writing Complete!')
 
 
-def write_pickle_file(file_name, lines, start_labels, end_labels, sep_positions, masks, id):
+def write_pickle_file(file_name, lines, start_labels, end_labels, sep_positions, masks, id, unuse_ids):
     lines = np.array(lines)
     start_labels = np.array(start_labels)
     end_labels = np.array(end_labels)
@@ -85,6 +85,8 @@ def write_pickle_file(file_name, lines, start_labels, end_labels, sep_positions,
         pickle.dump(sep_positions, f)
         pickle.dump(masks, f)
         pickle.dump(id, f)
+        pickle.dump(unuse_ids, f)
+
     print('Writing Complete!')
 
 
@@ -108,6 +110,7 @@ for file in files:
     masks = []
     pads = [0 for _ in range(max_seq)]
     ids = []
+    unuse_ids = {}
 
     for i in tqdm(range(len(squad['data']))):
         
@@ -116,7 +119,10 @@ for file in files:
             encoded = sp.EncodeAsIds(context)
 
             for k in range(len(squad['data'][i]['paragraphs'][j]['qas'])):
-                if len(squad['data'][i]['paragraphs'][j]['qas'][k]['answers']) == 0: continue
+                if len(squad['data'][i]['paragraphs'][j]['qas'][k]['answers']) == 0: 
+                    id = squad['data'][i]['paragraphs'][j]['qas'][k]['id']
+                    unuse_ids[id] = ''
+                    continue
                 question = sp.EncodeAsIds(squad['data'][i]['paragraphs'][j]['qas'][k]['question'])
                 id = squad['data'][i]['paragraphs'][j]['qas'][k]['id']
 
@@ -139,10 +145,15 @@ for file in files:
                     sep_positions.append(sep_position)
 
                     ids.append(id)
+
+                else:
+                    unuse_ids[id] = ''
+
+
     
     print(len(lines), len(start_label), len(end_label), len(sep_positions), len(masks))
     
     if 'train' in file:
         write_binary_file(file[:-5], lines, start_label, end_label, sep_positions, masks)
     elif 'dev' in file:
-        write_pickle_file(file[:-5], lines, start_label, end_label, sep_positions, masks, ids)
+        write_pickle_file(file[:-5], lines, start_label, end_label, sep_positions, masks, ids, unuse_ids)
