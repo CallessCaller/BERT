@@ -2,6 +2,7 @@ checkpoints/
 logs/
 __pycache__/
 logs_v2/
+logs_v2_small/
 GLUE/
 RTE/
 MRPC/

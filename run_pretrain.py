@@ -29,18 +29,24 @@ filenames = ['../BERT_data/xaa.tfrecord',
 dataset = tf.data.TFRecordDataset(filenames)
 
 EPOCHS = 40
-ACCUM_SIZE = 10
-BATCH_SIZE = 100
-BUFFER_SIZE = 5000000
+ACCUM_SIZE = 32
+BATCH_SIZE = 32
+BUFFER_SIZE = 200000
 
-hidden_size = 128
-dropout_rate = 0.1
-num_heads = 2
-num_layers = 2
-dff = 512
+# hidden_size = 128
+# num_heads = 2
+# num_layers = 2
+# dff = 512
+
+hidden_size = 512
+num_heads = 8
+num_layers = 4
+dff = 2048
+
 vocab_size = 30000
 seq_len = 256
 lr = 0.00176
+dropout_rate = 0.1
 total_step = 1000000
 
 feature_description = {
