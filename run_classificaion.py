@@ -192,16 +192,15 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         elif 'STS' in task:
             acc = prediction
         else:
-            prediction = tf.cast(tf.argmax(prediction, axis=-1), dtype=tf.float32)
             _, acc = get_accuracy(label, prediction)
-            
+
+            prediction = tf.cast(tf.argmax(prediction, axis=-1), dtype=tf.float32)
             prediction = tf.reshape(prediction, [-1, 1])
-            prediction = tf.cast(prediction, dtype=tf.float32)
+            #prediction = tf.cast(prediction, dtype=tf.float32)
             label = tf.reshape(label, [-1, 1])
             label = tf.cast(label, dtype=tf.float32)
             f1.update_state(label, prediction)
             f1_score = f1.result()
-            print(f1_score)
             return loss, (acc, f1_score)
 
         return loss, acc
@@ -215,6 +214,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         loss, train_acc = train(input_ids, label, seg_ids, pad_ids)
 
         if (step+1) % 100 == 0:
+            f1.reset_states()
             test_dataset = tf.data.Dataset.from_tensor_slices((test_lines, test_labels, test_sep,test_mask))
             test_dataset = test_dataset.batch(BATCH_SIZE, drop_remainder=False).repeat(1)
             if task == 'MNLI':
@@ -234,6 +234,8 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                         eval_acc_total = tf.concat([eval_acc_total, eval_acc], axis=0)
                 else:
                     eval_acc_total += eval_acc
+            if 'MRPC' in task or 'QQP' in task
+                print(f'STEP: {step+1} | F1: {f1_score}')
                 
 
             if task == 'CoLA':
@@ -347,12 +349,16 @@ if RTE:
 
     RTE_best = max([best1, best2, best3, best4])
 if MRPC:
-    best3, f1_score3 = tuning('MRPC', 2, 16, 10, 200, 3e-5)
+    best1, f1_score1 = tuning('MRPC', 2, 16, 10, 200, 5e-4)
+    print(f1_score1)
+
+    best3, f1_score3 = tuning('MRPC', 2, 16, 10, 200, 1e-5)
     print(f1_score3)
-    best4, f1_score4 = tuning('MRPC', 2, 16, 10, 200, 3e-5)
+
+    best4, f1_score4 = tuning('MRPC', 2, 16, 10, 200, 1e-3)
     print(f1_score4)
 
-    MRPC_best = max([best3, best4])
+    MRPC_best = max([best1, best3, best4])
     #MRPC_best_f1 = max([f1_score3, f1_score4])
 
     print(MRPC_best_f1)

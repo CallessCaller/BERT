@@ -14,7 +14,7 @@ config.gpu_options.allow_growth = True
 session = tf.compat.v1.InteractiveSession(config=config)
 
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-writer = tf.summary.create_file_writer("./logs_v2/" + current_time + '/train')
+writer = tf.summary.create_file_writer("./logs_v2_small/" + current_time + '/train')
 
 filenames = ['../BERT_data/xaa.tfrecord', 
              '../BERT_data/xab.tfrecord', 
