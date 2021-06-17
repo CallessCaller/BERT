@@ -234,7 +234,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                         eval_acc_total = tf.concat([eval_acc_total, eval_acc], axis=0)
                 else:
                     eval_acc_total += eval_acc
-            if 'MRPC' in task or 'QQP' in task
+            if 'MRPC' in task or 'QQP' in task:
                 print(f'STEP: {step+1} | F1: {f1_score}')
                 
 
