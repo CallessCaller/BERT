@@ -30,7 +30,7 @@ dataset = tf.data.TFRecordDataset(filenames)
 
 EPOCHS = 40
 ACCUM_SIZE = 32
-BATCH_SIZE = 32
+BATCH_SIZE = 8
 BUFFER_SIZE = 200000
 
 # hidden_size = 128
@@ -120,9 +120,10 @@ def create_masks(tokens, sep, pad):
     label[:, mlm_position] = tokens_np[:, mlm_position]
     label = tf.convert_to_tensor(label, dtype=tf.int64)
 
-    if p >= 0.9:
+    # remove unchange
+    if p >= 0.85:
         tokens_np[:, mlm_position] = np.random.randint(vocab_size, size=1)
-    elif p < 0.8:
+    else:
         tokens_np[:, mlm_position] = 4
         position = np.zeros_like(tokens_np)
         position[:, mlm_position] = 1
@@ -221,7 +222,7 @@ for step in tqdm(range(max_steps)):
     else:
         loss, accum_gradients = gradient_accumulation(input_ids, mlm_label, nsp_label, seg_ids, mask, accum_gradients)
 
-    if (step + 1) % (20000*ACCUM_SIZE) == 0:
+    if (step + 1) % (5000*ACCUM_SIZE) == 0:
         ckpt_save_path = ckpt_manager.save()
         print(f'Saving Checkpoint for step {step+1} at {ckpt_save_path}...')
 
