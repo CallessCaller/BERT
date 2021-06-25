@@ -251,7 +251,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
                 
 
             if task == 'CoLA':
-                eval_acc_total = eval_acc
+                eval_acc_total, _ = eval_acc
             elif 'STS' in task:
                 label = tf.reshape(test_labels, [-1, 1])
                 label = tf.cast(label, dtype=tf.float32)
@@ -260,6 +260,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
             else:
                 eval_acc_total /= len(test_labels)
 
+            print(eval_acc_total, best)
             if eval_acc_total > best:
                 best = eval_acc_total
 
@@ -301,7 +302,7 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
         else:
             eval_acc_total += eval_acc
     if task == 'CoLA':
-        eval_acc_total = eval_acc
+        eval_acc_total, _ = eval_acc
     elif 'STS' in task:
         label = tf.reshape(test_labels, [-1, 1])
         label = tf.cast(label, dtype=tf.float32)
@@ -342,6 +343,11 @@ def tuning(task, num_class, batch_size, epochs, warm_up, lr):
     print(f'best: {best}')
     if 'MRPC' in task or 'QQP' in task:
         return best, f1_score
+
+    with open(f'./logs_v2_small/{task}_{batch_size}_{warm_up}_{lr}', 'w') as f:
+        f.write(f'eval_total: {eval_acc_total} | best: {best} | f1: {f1_score}')
+        if task=='MNLI':
+            f.write(f'eval_total: {eval_acc_total} | best: {best} | best_mis: {best_mis} | f1: {f1_score}')
     return best
 
 RTE_best = 0
